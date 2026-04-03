@@ -1,10 +1,11 @@
 import re
 from difflib import SequenceMatcher
 
-from app.core.ai_client import call_ai, parse_json
+from app.core.ai_client import call_ai_complex, parse_json
 from app.core import latex_guard
 from app.utils import latex_utils
 from app.prompts import resume_edit as prompt
+from app.config import settings
 
 
 OBVIOUS_TARGETING_PATTERNS = [
@@ -119,12 +120,10 @@ def _sanitize_soft_skills(candidate: str, current: str) -> str:
         if normalized and normalized not in chosen:
             chosen.append(normalized)
 
-    # Always guarantee these core interpersonal skills.
     for required in ["Leadership", "Teamwork", "Communication"]:
         if required not in chosen:
             chosen.insert(0, required)
 
-    # Keep only approved interpersonal skills and stable order.
     final = [skill for skill in CANONICAL_SOFT_SKILLS if skill in chosen]
     if len(final) < 5:
         for skill in CANONICAL_SOFT_SKILLS:
@@ -134,6 +133,127 @@ def _sanitize_soft_skills(candidate: str, current: str) -> str:
                 break
 
     return ", ".join(final[:5])
+
+
+# ── Pre-ranking: score each bank entry against JD keywords before LLM call ──
+
+def _tokenize_for_rank(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", (text or "").lower()))
+
+
+def _score_entry(entry_text: str, jd_tokens: set[str]) -> int:
+    """Count how many JD keyword tokens appear in the entry text."""
+    entry_tokens = _tokenize_for_rank(entry_text)
+    return len(jd_tokens & entry_tokens)
+
+
+def _build_jd_tokens(jd_analysis: dict) -> set[str]:
+    """Build a flat token set from all JD signals for scoring."""
+    parts = (
+        jd_analysis.get("must_have_skills", [])
+        + jd_analysis.get("preferred_skills", [])
+        + jd_analysis.get("ats_keywords", [])
+        + jd_analysis.get("responsibilities", [])
+    )
+    return _tokenize_for_rank(" ".join(parts))
+
+
+def _rank_projects(bank_text: str, jd_analysis: dict, n_slots: int) -> str:
+    """
+    Parse the projects bank, score each project against JD tokens,
+    return the top (n_slots * PROJECT_CANDIDATE_MULTIPLIER) as plain text.
+    Prevents the LLM from seeing irrelevant projects and picking randomly.
+    """
+    all_projects = latex_utils.extract_projects(bank_text)
+    if not all_projects:
+        return bank_text  # fallback: return raw if parsing fails
+
+    jd_tokens = _build_jd_tokens(jd_analysis)
+    limit = n_slots * settings.PROJECT_CANDIDATE_MULTIPLIER
+
+    scored = []
+    for proj in all_projects:
+        combined = " ".join([
+            proj.get("name", ""),
+            proj.get("tech_stack", ""),
+            " ".join(proj.get("bullets", [])),
+        ])
+        scored.append((_score_entry(combined, jd_tokens), proj))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top = scored[:limit]
+
+    lines = []
+    for _, proj in top:
+        lines.append(f"Project: {proj['full_name']}")
+        lines.append(f"Tech Stack: {proj['tech_stack']}")
+        for b in proj.get("bullets", []):
+            lines.append(f"  - {b}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _rank_experience(bank_text: str, jd_analysis: dict) -> str:
+    """
+    Parse the experience bank, score each company block against JD tokens,
+    return all entries sorted by relevance.
+    """
+    all_exp = latex_utils.extract_experience(bank_text)
+    if not all_exp:
+        return bank_text
+
+    jd_tokens = _build_jd_tokens(jd_analysis)
+
+    scored = []
+    for company, bullets in all_exp.items():
+        combined = company + " " + " ".join(bullets)
+        scored.append((_score_entry(combined, jd_tokens), company, bullets))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    lines = []
+    for _, company, bullets in scored:
+        lines.append(f"Company: {company}")
+        for b in bullets:
+            lines.append(f"  - {b}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+# ── Real ATS score: computed in Python after tailoring, never hallucinated ──
+
+def _compute_ats_score(tailored_latex: str, ats_keywords: list[str]) -> dict:
+    """
+    Strip LaTeX commands, then deterministically check which ATS keywords
+    from the JD appear in the resume text. Returns score 0-100.
+    """
+    plain = re.sub(r'\\[a-zA-Z]+\*?(\[[^\]]*\])?\{([^}]*)\}', r'\2', tailored_latex)
+    plain = re.sub(r'\\[a-zA-Z]+\*?', ' ', plain)
+    plain = plain.lower()
+
+    matched = []
+    missing = []
+    for kw in ats_keywords:
+        kw_clean = kw.lower().strip()
+        if kw_clean in plain:
+            matched.append(kw)
+        else:
+            # All significant tokens of the keyword must appear somewhere
+            tokens = [t for t in re.split(r"[\s/+\-.,]+", kw_clean) if len(t) > 2]
+            if tokens and all(t in plain for t in tokens):
+                matched.append(kw)
+            else:
+                missing.append(kw)
+
+    total = len(ats_keywords)
+    score = round(len(matched) / total * 100) if total > 0 else 0
+
+    return {
+        "score": score,
+        "matched": matched,
+        "missing": missing,
+        "total_keywords": total,
+    }
 
 
 async def tailor(
@@ -148,12 +268,18 @@ async def tailor(
     current_projects = latex_utils.extract_projects(latex_resume)
     current_experience = latex_utils.extract_experience(latex_resume)
 
+    n_slots = len(current_projects)
+
+    # Pre-rank banks — LLM only sees the most relevant candidates
+    ranked_projects_bank = _rank_projects(projects_bank, jd_analysis, n_slots)
+    ranked_experience_bank = _rank_experience(experience_bank, jd_analysis)
+
     messages = [
         {"role": "system", "content": prompt.SYSTEM},
         {"role": "user", "content": prompt.build_user(
             jd_analysis=jd_analysis,
-            projects_bank=projects_bank,
-            experience_bank=experience_bank,
+            projects_bank=ranked_projects_bank,
+            experience_bank=ranked_experience_bank,
             current_summary=current_summary,
             current_skills=current_skills,
             current_projects=current_projects,
@@ -162,7 +288,8 @@ async def tailor(
         )},
     ]
 
-    raw = await call_ai(messages, json_mode=True)
+    # DeepSeek V3 via NVIDIA — temperature=0.0 set globally in config
+    raw = await call_ai_complex(messages, json_mode=True)
     result = parse_json(raw)
 
     updated_latex = _apply_changes(
@@ -176,6 +303,9 @@ async def tailor(
     issues = latex_guard.validate(updated_latex)
     if issues:
         result.setdefault("warnings", []).extend(issues)
+
+    # Real ATS score — computed deterministically in Python, not by the model
+    result["ats_score"] = _compute_ats_score(updated_latex, jd_analysis.get("ats_keywords", []))
 
     result["updated_latex"] = updated_latex
     return result

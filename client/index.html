@@ -784,6 +784,7 @@ function renderOutput(data) {
   /* JD Analysis */
   if (data.jd_analysis) {
     const a = data.jd_analysis;
+    const q = a.jd_quality || null;
     document.getElementById('analysisOut').innerHTML = `
       <div class="analysis-meta">
         <div class="meta-chip">
@@ -819,7 +820,16 @@ function renderOutput(data) {
         <ul style="padding-left:16px;color:var(--sub);line-height:1.9">
           ${(a.responsibilities || []).map(r => `<li>${esc(r)}</li>`).join('')}
         </ul>
-      </div>`;
+      </div>
+
+      ${q ? `
+      <div class="analysis-section">
+        <div class="analysis-section-title">JD Quality Check</div>
+        <div style="margin-bottom:8px">
+          <span class="tag ${q.is_valid ? 'tag-green' : 'tag-red'}">${q.is_valid ? 'Valid for tailoring' : 'Needs clearer JD'}</span>
+        </div>
+        ${(q.warnings || []).length ? `<ul style="padding-left:16px;color:var(--sub);line-height:1.8">${(q.warnings || []).map(w => `<li>${esc(w)}</li>`).join('')}</ul>` : '<div style="color:var(--sub)">No quality warnings.</div>'}
+      </div>` : ''}`;
   }
 
   /* Changes */

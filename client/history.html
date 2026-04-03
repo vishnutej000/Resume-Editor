@@ -476,6 +476,8 @@ const API = 'http://localhost:8000';
 let allApps = [];
 let activeFilter = 'all';
 let searchTimer = null;
+let searchResults = null;
+let searchNonce = 0;
 
 /* ── Avatar colours ── */
 const AVATAR_COLORS = [
@@ -511,6 +513,7 @@ async function load() {
     const r = await fetch(`${API}/api/history?limit=100`);
     const d = await r.json();
     allApps = d.applications || [];
+    searchResults = null;
     renderStats(allApps);
     applyFilters();
   } catch {
@@ -550,14 +553,16 @@ function setFilter(f) {
 function applyFilters() {
   const q = document.getElementById('searchInput').value.trim().toLowerCase();
   const sort = document.getElementById('sortSelect').value;
-  let apps = [...allApps];
+  let apps = [...(searchResults || allApps)];
 
-  /* text filter */
-  if (q) apps = apps.filter(a =>
-    a.company.toLowerCase().includes(q) ||
-    a.role.toLowerCase().includes(q) ||
-    (a.jd_preview || '').toLowerCase().includes(q)
-  );
+  /* text filter (local fallback when API search is unavailable) */
+  if (q && searchResults === null) {
+    apps = apps.filter(a =>
+      a.company.toLowerCase().includes(q) ||
+      a.role.toLowerCase().includes(q) ||
+      (a.jd_preview || '').toLowerCase().includes(q)
+    );
+  }
 
   /* chip filter */
   if (activeFilter === 'pdf') apps = apps.filter(a => a.has_pdf);
@@ -573,7 +578,39 @@ function applyFilters() {
 /* ── Search (remote for semantic, local for speed) ── */
 function onSearch() {
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(applyFilters, 200);
+  const query = document.getElementById('searchInput').value.trim();
+  if (!query) {
+    searchResults = null;
+    applyFilters();
+    return;
+  }
+  searchTimer = setTimeout(() => { runRemoteSearch(query); }, 220);
+}
+
+async function runRemoteSearch(query) {
+  const nonce = ++searchNonce;
+  let remoteResults = null;
+
+  try {
+    const res = await fetch(`${API}/api/history/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, limit: 100 }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const ids = new Set((data.results || []).map(r => r.id));
+      remoteResults = allApps.filter(app => ids.has(app.id));
+    }
+  } catch {
+    remoteResults = null;
+  }
+
+  if (nonce !== searchNonce) return;
+
+  const latestQuery = document.getElementById('searchInput').value.trim();
+  searchResults = latestQuery ? remoteResults : null;
+  applyFilters();
 }
 
 /* ── Render ── */

@@ -148,9 +148,10 @@ async def delete_application(app_id: str):
     if not record:
         raise HTTPException(status_code=404, detail="Application not found")
 
-    folder_path = Path(storage.get_file_path(record["folder_name"], ""))
-    if folder_path.parent.exists():
-        shutil.rmtree(str(folder_path.parent), ignore_errors=True)
+    outputs_root = Path(settings.OUTPUTS_DIR).resolve()
+    folder_path = (outputs_root / record["folder_name"]).resolve()
+    if outputs_root in folder_path.parents and folder_path.exists():
+        shutil.rmtree(str(folder_path), ignore_errors=True)
 
     duckdb_client.delete_application(app_id)
 

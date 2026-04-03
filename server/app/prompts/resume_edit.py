@@ -16,6 +16,33 @@ content from approved banks — nothing else.
 - Skills must come from the current resume skills section — only reorder by JD relevance, do not invent.
 - If the JD requires something not in any bank, flag it in warnings — do not make it up.
 
+=== EXPERIENCE BULLET SELECTION — ADAPTIVE LOGIC ===
+Companies in the resume are fixed. Your only lever is WHICH BULLETS you pick from the bank per company.
+
+Step 1 — Read the JD signal:
+  Extract from the JD: what domain is this (systems, fintech, mobile, AI/ML, security, etc.)?
+  What does it explicitly want? What does it explicitly NOT want or exclude?
+
+Step 2 — Score every bullet in the bank for each company:
+  Score HIGH  → bullet directly mentions a JD must-have skill, ATS keyword, or responsibility.
+  Score MID   → bullet is transferable: debugging, testing, automation, scripting, deployment,
+                performance, integration, architecture, security, data, backend — regardless of the
+                specific tech stack. Transferable signals cross domain boundaries.
+  Score LOW   → bullet's primary domain directly contradicts what the JD is looking for
+                (e.g. UI/mobile bullet for a systems role, trading bullet for an EdTech role).
+  Score ZERO  → bullet explicitly involves something the JD says it does NOT want
+                (e.g. JD says "not for frontend developers" → frontend-only bullets score zero).
+
+Step 3 — Pick the highest-scoring bullets for each company, up to the slot count.
+  Never invent relevance. If the best available bullet still scores LOW, pick it but flag the company.
+
+Step 4 — Flag mismatched companies in warnings:
+  If a company's highest-scoring bullets are all LOW or ZERO, add to warnings:
+  "Warning: [Company] — available bullets are [category] which does not align with this JD's focus on [JD domain]. Consider adding a [JD domain]-relevant bullet variant to your experience bank."
+
+This logic applies to ANY JD — systems, fintech, EdTech, mobile, AI/ML, security, DevOps, etc.
+Never hardcode domain assumptions. Always derive from the JD requirements provided.
+
 === OUTPUT FORMAT RULES ===
 - Return plain-text values in all JSON fields — no LaTeX commands, no backslashes, no markdown.
 - The backend converts your plain text back into LaTeX. Your job is content only.
@@ -61,6 +88,7 @@ def build_user(
     must_have = jd_analysis.get("must_have_skills", [])
     preferred = jd_analysis.get("preferred_skills", [])
     ats_keywords = jd_analysis.get("ats_keywords", [])
+    responsibilities = jd_analysis.get("responsibilities", [])
 
     return f"""Tailor this resume for the job below. It MUST stay ONE PAGE.
 
@@ -68,15 +96,23 @@ def build_user(
 Role: {jd_analysis.get("target_role", "")}
 Domain: {target_domain or jd_analysis.get("domain", "General Software")}
 Level: {jd_analysis.get("experience_level", "Unknown")}
+Summary: {jd_analysis.get("summary", "")}
 
 Must-Have Skills:  {", ".join(must_have) if must_have else "not specified"}
 Preferred Skills:  {", ".join(preferred) if preferred else "not specified"}
 ATS Keywords:      {", ".join(ats_keywords) if ats_keywords else "not specified"}
+Key Responsibilities: {", ".join(responsibilities) if responsibilities else "not specified"}
 
-=== PROJECTS BANK (all available projects to choose from) ===
+=== PROJECTS BANK (pre-ranked by JD relevance — top candidates only) ===
+The projects below are already sorted from most to least relevant for this JD.
+Prefer projects listed earlier. Each entry is plain text — no LaTeX.
 {projects_bank}
 
-=== EXPERIENCE BANK ===
+=== EXPERIENCE BANK (pre-ranked by JD relevance) ===
+ALL available bullet variants per company are listed below — you must pick the ones
+that score highest using the ADAPTIVE LOGIC in the system prompt.
+Do not default to the current resume's bullets. Actively pick the best fit for this JD.
+Each entry is plain text — no LaTeX.
 {experience_bank}
 
 === CURRENT RESUME STATE ===
@@ -121,6 +157,6 @@ Return JSON matching this exact schema (no extra keys, no missing keys):
     "covered": ["which must-have skills and ATS keywords are now represented in the tailored resume"],
     "missing": ["which must-have skills or ATS keywords are absent from the resume AND from all banks"]
   }},
-  "change_rationale": "1-2 sentences: which projects were swapped and why they better match the JD",
-  "warnings": ["any must-have JD requirement that cannot be addressed from the available banks"]
+  "change_rationale": "1-2 sentences: which projects/bullets were chosen and why they best match the JD domain",
+  "warnings": ["companies where no bank bullets align with the JD — with suggestion to add relevant bullet variants to experience bank"]
 }}"""

@@ -15,20 +15,25 @@ def _mask(key: str) -> str:
 async def health():
     return HealthResponse(
         status="ok",
-        model=settings.MODEL,
-        provider=settings.PROVIDER,
+        complex_model=settings.COMPLEX_MODEL,
+        simple_model=settings.SIMPLE_MODEL,
     )
 
 
 @router.get("/debug/config")
 async def debug_config():
     return {
-        "model": settings.MODEL,
-        "provider": settings.PROVIDER,
-        "api_key_loaded": _mask(settings.API_KEY),
-        "api_key_has_quotes": settings.API_KEY.startswith('"') or settings.API_KEY.startswith("'"),
+        "complex_model": settings.COMPLEX_MODEL,
+        "simple_model": settings.SIMPLE_MODEL,
         "fallback_model": settings.FALLBACK_MODEL or "not set",
-        "fallback_key_loaded": _mask(settings.FALLBACK_API_KEY),
+        "nvidia_api_key": _mask(settings.NVIDIA_API_KEY),
+        "groq_api_key": _mask(settings.GROQ_API_KEY),
+        "fallback_api_key": _mask(settings.FALLBACK_API_KEY),
+        "ai_timeout": settings.AI_TIMEOUT,
+        "max_tokens": settings.MAX_TOKENS,
+        "complex_temperature": settings.COMPLEX_TEMPERATURE,
+        "project_candidate_multiplier": settings.PROJECT_CANDIDATE_MULTIPLIER,
+        "ats_match_threshold": settings.ATS_MATCH_THRESHOLD,
         "base_resume_path": settings.BASE_RESUME_PATH,
         "projects_bank_path": settings.PROJECTS_BANK_PATH,
         "experience_bank_path": settings.EXPERIENCE_BANK_PATH,

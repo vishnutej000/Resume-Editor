@@ -6,6 +6,7 @@ from app.models.request import TailorResumeRequest, AnalyzeJDRequest
 from app.models.response import TailorResumeResponse, JDAnalysis
 from app.core import jd_analyzer, resume_editor, pdf_generator, storage
 from app.db import duckdb_client, lancedb_client
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,11 @@ router = APIRouter()
 async def analyze_jd(req: AnalyzeJDRequest):
     try:
         result = await jd_analyzer.analyze(req.job_role, req.job_description)
+        result["jd_quality"] = jd_analyzer.assess_jd_quality(
+            job_role=req.job_role,
+            job_description=req.job_description,
+            analysis=result,
+        )
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -32,6 +38,23 @@ async def tailor_resume(req: TailorResumeRequest):
 
     try:
         jd_analysis = await jd_analyzer.analyze(req.job_role, req.job_description)
+        jd_quality = jd_analyzer.assess_jd_quality(
+            job_role=req.job_role,
+            job_description=req.job_description,
+            analysis=jd_analysis,
+            company=req.company,
+        )
+
+        if not jd_quality.get("is_valid", False):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": "Job description does not clearly define role intent and requirements.",
+                    "checks": jd_quality.get("checks", {}),
+                    "warnings": jd_quality.get("warnings", []),
+                },
+            )
+
         result = await resume_editor.tailor(
             latex_resume=latex_resume,
             projects_bank=projects_bank,
@@ -39,7 +62,12 @@ async def tailor_resume(req: TailorResumeRequest):
             jd_analysis=jd_analysis,
             target_domain=req.target_domain,
         )
+
+        if jd_quality.get("warnings"):
+            result.setdefault("warnings", []).extend(jd_quality["warnings"])
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(status_code=500, detail=str(e))
 
     app_id = str(uuid.uuid4())
@@ -116,6 +144,7 @@ async def tailor_resume(req: TailorResumeRequest):
         tailored_experience=result.get("tailored_experience", {}),
         updated_latex=result.get("updated_latex", ""),
         keyword_coverage=result.get("keyword_coverage", {}),
+        ats_score=result.get("ats_score", {"score": 0, "matched": [], "missing": [], "total_keywords": 0}),
         change_rationale=result.get("change_rationale", ""),
         warnings=result.get("warnings", []),
         pdf_available=has_pdf,

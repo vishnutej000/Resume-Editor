@@ -30,7 +30,8 @@ PROVIDERS = {
         "free": True,
         "monthly_reset": False,
         "models": [
-            {"id": "nvidia_nim/qwen/qwen2.5-72b-instruct", "name": "Qwen 2.5 72B", "context": 128000, "recommended": True},
+            {"id": "nvidia_nim/deepseek-ai/deepseek-v3-0324", "name": "DeepSeek V3", "context": 128000, "recommended": True},
+            {"id": "nvidia_nim/qwen/qwen2.5-72b-instruct", "name": "Qwen 2.5 72B", "context": 128000},
             {"id": "nvidia_nim/meta/llama-3.3-70b-instruct", "name": "Llama 3.3 70B", "context": 128000},
             {"id": "nvidia_nim/deepseek-ai/deepseek-r1", "name": "DeepSeek R1", "context": 128000},
             {"id": "nvidia_nim/microsoft/phi-4", "name": "Phi-4", "context": 16384},

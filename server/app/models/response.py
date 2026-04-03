@@ -25,6 +25,7 @@ class TailorResumeResponse(BaseModel):
     tailored_experience: dict[str, list[str]]
     updated_latex: str
     keyword_coverage: dict[str, list[str]]
+    ats_score: dict          # {score: int, matched: list, missing: list, total_keywords: int}
     change_rationale: str
     warnings: list[str]
     pdf_available: bool
@@ -50,6 +51,6 @@ class HistoryResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
-    model: str
-    provider: str
+    complex_model: str
+    simple_model: str
     version: str = "1.0.0"
