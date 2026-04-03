@@ -6,7 +6,6 @@ from app.models.request import TailorResumeRequest, AnalyzeJDRequest
 from app.models.response import TailorResumeResponse, JDAnalysis
 from app.core import jd_analyzer, resume_editor, pdf_generator, storage
 from app.db import duckdb_client, lancedb_client
-from app.config import settings
 
 logger = logging.getLogger(__name__)
 

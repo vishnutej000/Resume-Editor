@@ -200,33 +200,18 @@ def _apply_changes(
         tailored_skills["Soft Skills"] = _sanitize_soft_skills(tailored_soft, current_soft)
         latex = latex_utils.replace_skills(latex, result["tailored_skills"])
 
-    tailored_projects = result.get("tailored_projects", [])
-    for slot_index, proj in enumerate(tailored_projects):
+    for proj in result.get("tailored_projects", []):
         name = proj.get("name", "")
+        original = next((p for p in original_projects if p["name"] == name), None)
+        full_name = original.get("full_name", name) if original else name
         cleaned_bullets = [_remove_obvious_targeting(b) for b in proj.get("bullets", [])]
         cleaned_bullets = [b for b in cleaned_bullets if b]
-
-        original = next((p for p in original_projects if p["name"] == name), None)
-
-        if original is None:
-            # The AI picked a project from the bank that isn't currently on the resume —
-            # this is a genuine swap. Replace the entire slot block by position.
-            latex = latex_utils.replace_project_by_slot(
-                latex,
-                slot_index,
-                new_name=name,
-                new_tech_stack=proj.get("tech_stack", ""),
-                new_bullets=cleaned_bullets,
-            )
-        else:
-            # Project is already on the resume — just update bullets/tech stack in-place.
-            full_name = original.get("full_name", name)
-            latex = latex_utils.replace_project_bullets(
-                latex,
-                full_name,
-                cleaned_bullets,
-                proj.get("tech_stack", ""),
-            )
+        latex = latex_utils.replace_project_bullets(
+            latex,
+            full_name,
+            cleaned_bullets,
+            proj.get("tech_stack", ""),
+        )
 
     for company, bullets in result.get("tailored_experience", {}).items():
         cleaned_bullets = [_remove_obvious_targeting(b) for b in bullets]

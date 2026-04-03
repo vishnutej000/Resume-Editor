@@ -98,54 +98,6 @@ def replace_skills(latex: str, skills: dict) -> str:
     return pattern.sub(replacer, latex, count=1)
 
 
-def replace_project_by_slot(
-    latex: str,
-    slot_index: int,
-    new_name: str,
-    new_tech_stack: str,
-    new_bullets: list[str],
-) -> str:
-    """Replace the entire Nth project block (0-indexed) with new content.
-
-    Used when the AI picks a *different* project from the bank for a slot.
-    The old project name/header is fully replaced so swaps actually work.
-    """
-    section_match = re.search(
-        r'(\\section\{Projects\})(.*?)(\\section\{Skills\})',
-        latex,
-        re.DOTALL,
-    )
-    if not section_match:
-        return latex
-
-    projects_content = section_match.group(2)
-
-    # Split into individual project blocks, keeping the \textbf{ delimiter
-    raw_blocks = re.split(r'(?=\\textbf\{)', projects_content)
-    project_blocks = [b for b in raw_blocks if re.match(r'\\textbf\{', b.strip())]
-    non_project_prefix = raw_blocks[0] if not re.match(r'\\textbf\{', raw_blocks[0].strip()) else ""
-
-    if slot_index >= len(project_blocks):
-        return latex  # slot out of range, leave unchanged
-
-    # Build the replacement block
-    safe_name = escape_special_chars(new_name)
-    safe_stack = escape_special_chars(new_tech_stack)
-    safe_bullets = [escape_special_chars(b) for b in new_bullets]
-    bullet_content = "\n    ".join(f"\\item {b}" for b in safe_bullets)
-    new_block = (
-        f"\\textbf{{{safe_name}}} \\hfill \\textit{{Tech Stack: {safe_stack}}}\n"
-        f"\\begin{{highlights}}\n    {bullet_content}\n\\end{{highlights}}\n"
-    )
-
-    project_blocks[slot_index] = new_block
-    new_projects_content = non_project_prefix + "".join(project_blocks)
-
-    before = latex[: section_match.start(2)]
-    after = latex[section_match.end(2) :]
-    return before + new_projects_content + after
-
-
 def replace_project_bullets(latex: str, project_name: str, new_bullets: list[str], new_tech_stack: str) -> str:
     escaped = re.escape(project_name)
     safe_bullets = [escape_special_chars(b) for b in new_bullets]
