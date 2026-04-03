@@ -1,0 +1,23 @@
+services:
+  server:
+    build:
+      context: ./server
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./server/.env
+    volumes:
+      - ./server/outputs:/app/outputs
+      - ./server/data:/app/data
+      - ./base:/app/../base:ro
+    restart: unless-stopped
+
+  client:
+    image: nginx:alpine
+    ports:
+      - "3000:80"
+    volumes:
+      - ./client:/usr/share/nginx/html:ro
+    depends_on:
+      - server
+    restart: unless-stopped

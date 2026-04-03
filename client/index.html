@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Resume Editor</title>
+<style>
+  :root {
+    --bg:        #0a0e17;
+    --surface:   #101724;
+    --surface2:  #161f2e;
+    --surface3:  #1d2a3f;
+    --border:    #243044;
+    --text:      #e2e8f4;
+    --sub:       #94a3b8;
+    --muted:     #64748b;
+    --accent:    #60a5fa;
+    --accent-d:  rgba(96,165,250,.12);
+    --accent2:   #8b5cf6;
+    --accent2-d: rgba(139,92,246,.12);
+    --success:   #34d399;
+    --success-d: rgba(52,211,153,.12);
+    --warning:   #fbbf24;
+    --warning-d: rgba(251,191,36,.12);
+    --error:     #f87171;
+    --error-d:   rgba(248,113,113,.12);
+    --r:         8px;
+    --r-lg:      12px;
+  }
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    font-size: 13.5px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ─── Header ─── */
+  header {
+    height: 54px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 12px;
+    flex-shrink: 0;
+    z-index: 50;
+  }
+
+  .logo {
+    display: flex; align-items: center; gap: 9px;
+    text-decoration: none; color: var(--text); flex-shrink: 0;
+  }
+  .logo-icon {
+    width: 30px; height: 30px;
+    background: linear-gradient(135deg, var(--accent2), var(--accent));
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px;
+  }
+  .logo-name { font-size: 14px; font-weight: 700; letter-spacing: -.01em; }
+  .logo-tag {
+    font-size: 10px; font-weight: 600;
+    background: var(--accent2-d); color: var(--accent2);
+    border: 1px solid rgba(139,92,246,.25);
+    padding: 1px 7px; border-radius: 20px;
+  }
+
+  nav { display: flex; gap: 2px; margin-left: 8px; }
+  .nav-a {
+    display: flex; align-items: center; gap: 5px;
+    padding: 5px 12px; border-radius: 6px;
+    font-size: 13px; font-weight: 500;
+    color: var(--sub); text-decoration: none;
+    transition: background .15s, color .15s;
+  }
+  .nav-a:hover { background: var(--surface2); color: var(--text); }
+  .nav-a.on    { background: var(--surface2); color: var(--accent); }
+  .nav-pill {
+    background: var(--accent2); color: #fff;
+    font-size: 10px; font-weight: 700;
+    padding: 1px 6px; border-radius: 10px;
+    min-width: 18px; text-align: center; line-height: 1.6;
+  }
+
+  .hdr-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .status-pill {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 10px;
+    font-size: 11.5px; color: var(--sub);
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; transition: background .3s; }
+
+  /* ─── Workspace ─── */
+  .workspace {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 420px 1fr;
+    overflow: hidden;
+  }
+
+  /* ─── Form panel ─── */
+  .form-panel {
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .form-panel::-webkit-scrollbar { width: 5px; }
+  .form-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  .form-body { padding: 20px 20px 28px; display: flex; flex-direction: column; gap: 18px; }
+
+  .section-hd {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 10.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .09em;
+    color: var(--muted);
+  }
+  .section-hd::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  .field { display: flex; flex-direction: column; gap: 5px; }
+
+  .field-label {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 12.5px; font-weight: 600; color: var(--text);
+  }
+  .field-label .opt { color: var(--muted); font-weight: 400; font-size: 11.5px; }
+  .word-count { font-size: 11px; color: var(--muted); font-weight: 400; }
+
+  .input-wrap { position: relative; }
+  .input-icon {
+    position: absolute; left: 10px; top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted); font-size: 13px; pointer-events: none;
+  }
+
+  input, textarea {
+    width: 100%;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--r); color: var(--text);
+    padding: 9px 11px; font-size: 13px; font-family: inherit;
+    outline: none;
+    transition: border-color .15s, box-shadow .15s, background .15s;
+  }
+  input.with-icon { padding-left: 30px; }
+  input:focus, textarea:focus {
+    border-color: var(--accent);
+    background: var(--surface3);
+    box-shadow: 0 0 0 3px rgba(96,165,250,.1);
+  }
+  input::placeholder, textarea::placeholder { color: var(--muted); }
+  textarea { resize: vertical; line-height: 1.6; }
+
+  /* Info box */
+  .info-box {
+    display: flex; align-items: flex-start; gap: 8px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent2);
+    border-radius: var(--r); padding: 10px 12px;
+    font-size: 12px; color: var(--sub); line-height: 1.6;
+  }
+
+  /* Progress */
+  .progress-wrap { display: none; flex-direction: column; gap: 6px; }
+  .progress-wrap.on { display: flex; }
+  .step-indicators { display: flex; align-items: center; gap: 6px; }
+  .step {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 11.5px; color: var(--muted);
+  }
+  .step-dot {
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700; color: var(--muted);
+    transition: all .3s;
+  }
+  .step.active .step-dot { background: var(--accent); border-color: var(--accent); color: #0a0e17; }
+  .step.done .step-dot { background: var(--success); border-color: var(--success); color: #0a0e17; }
+  .step-line { flex: 1; height: 1px; background: var(--border); }
+  .progress-bar {
+    height: 2px; background: var(--border); border-radius: 2px; overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    animation: prog 2.4s ease-in-out infinite;
+  }
+  @keyframes prog { 0%{width:0%;margin-left:0} 50%{width:70%;margin-left:15%} 100%{width:0%;margin-left:100%} }
+  .status-msg { font-size: 12px; color: var(--sub); }
+
+  /* Actions */
+  .actions { display: flex; gap: 8px; }
+
+  /* ─── Buttons ─── */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 9px 18px; border-radius: var(--r);
+    font-size: 13px; font-weight: 600; font-family: inherit;
+    cursor: pointer; border: none; text-decoration: none; white-space: nowrap;
+    transition: transform .1s, box-shadow .15s, opacity .15s, background .15s;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; transform: none !important; }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent) 0%, #3b82f6 100%);
+    color: #0a0e17; box-shadow: 0 2px 12px rgba(96,165,250,.3);
+  }
+  .btn-primary:hover:not(:disabled) { box-shadow: 0 4px 20px rgba(96,165,250,.45); }
+  .btn-secondary {
+    background: var(--surface2); color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover:not(:disabled) { background: var(--surface3); border-color: var(--sub); }
+  .btn-ghost { background: transparent; color: var(--sub); }
+  .btn-ghost:hover { background: var(--surface2); color: var(--text); }
+  .btn-sm { padding: 5px 11px; font-size: 12px; }
+
+  .spinner {
+    width: 13px; height: 13px; display: none;
+    border: 2px solid rgba(10,14,23,.3); border-top-color: #0a0e17;
+    border-radius: 50%; animation: spin .55s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ─── Output panel ─── */
+  .output-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .empty-state {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 16px; color: var(--sub); text-align: center; padding: 40px;
+  }
+  .empty-gfx {
+    width: 80px; height: 80px; border-radius: 20px;
+    background: linear-gradient(135deg, var(--surface2), var(--surface3));
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 32px; position: relative;
+  }
+  .empty-gfx::after {
+    content: '';
+    position: absolute; inset: -1px;
+    border-radius: 21px;
+    background: linear-gradient(135deg, rgba(96,165,250,.15), rgba(139,92,246,.15));
+    z-index: -1;
+  }
+  .empty-state h3 { font-size: 17px; font-weight: 700; color: var(--text); }
+  .empty-state p { font-size: 13px; max-width: 280px; line-height: 1.7; }
+  .empty-hint {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--r); padding: 8px 14px;
+    font-size: 12px; color: var(--sub);
+  }
+  kbd {
+    background: var(--surface3); border: 1px solid var(--border);
+    border-radius: 4px; padding: 1px 5px; font-size: 11px; font-family: monospace;
+    color: var(--text);
+  }
+
+  /* Tabs — sticky within output panel */
+  .tabs-wrap {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 20px;
+    flex-shrink: 0;
+  }
+  .tabs { display: flex; overflow-x: auto; gap: 0; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    padding: 12px 14px; font-size: 12.5px; font-weight: 500;
+    cursor: pointer; color: var(--muted);
+    border: none; border-bottom: 2px solid transparent;
+    background: none; font-family: inherit; white-space: nowrap;
+    transition: color .15s, border-color .15s;
+  }
+  .tab:hover { color: var(--sub); }
+  .tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .tab-body { flex: 1; overflow-y: auto; padding: 20px; }
+  .tab-body::-webkit-scrollbar { width: 5px; }
+  .tab-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  .tab-pane { display: none; animation: fadeUp .18s ease; }
+  .tab-pane.on { display: block; }
+  @keyframes fadeUp { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:none} }
+
+  /* ─── Output content ─── */
+
+  /* Summary */
+  .summary-card {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--r-lg); padding: 20px 22px;
+    line-height: 1.8; font-size: 13.5px; color: var(--text);
+    border-left: 3px solid var(--accent);
+  }
+
+  /* Skills */
+  .skill-group { margin-bottom: 12px; }
+  .skill-group-label {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--accent); margin-bottom: 8px;
+  }
+  .skill-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .skill-tag {
+    background: var(--accent-d); color: var(--accent);
+    border: 1px solid rgba(96,165,250,.2);
+    border-radius: 6px; padding: 4px 10px;
+    font-size: 12px; font-weight: 500;
+  }
+
+  /* Projects */
+  .project-card {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--r-lg); overflow: hidden; margin-bottom: 12px;
+  }
+  .project-card-head {
+    padding: 14px 16px 12px;
+    background: linear-gradient(135deg, var(--surface3), var(--surface2));
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+  }
+  .project-name { font-size: 14px; font-weight: 700; }
+  .project-tech { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .tech-pill {
+    background: var(--accent2-d); color: var(--accent2);
+    border: 1px solid rgba(139,92,246,.2);
+    border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 500;
+  }
+  .project-card-body { padding: 14px 16px; }
+  .project-card-body ul { padding-left: 16px; }
+  .project-card-body li { line-height: 1.8; color: var(--sub); font-size: 13px; }
+
+  /* Experience */
+  .exp-item {
+    border-left: 2px solid var(--accent2);
+    padding: 0 0 20px 16px; position: relative; margin-bottom: 4px;
+  }
+  .exp-item::before {
+    content: ''; position: absolute; left: -5px; top: 4px;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent2); border: 2px solid var(--bg);
+  }
+  .exp-item:last-child { padding-bottom: 0; border-left-color: transparent; }
+  .exp-company { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+  .exp-item ul { padding-left: 16px; }
+  .exp-item li { line-height: 1.8; color: var(--sub); font-size: 13px; }
+
+  /* LaTeX */
+  .latex-toolbar {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface3); border: 1px solid var(--border);
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    padding: 8px 14px;
+  }
+  .latex-dots { display: flex; gap: 5px; }
+  .latex-dot { width: 11px; height: 11px; border-radius: 50%; }
+  .code-area {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-top: none; border-radius: 0 0 var(--r-lg) var(--r-lg);
+    padding: 16px; font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 12px; line-height: 1.65;
+    white-space: pre-wrap; word-break: break-all;
+    max-height: calc(100vh - 220px); overflow-y: auto; color: #a5b4c8;
+  }
+  .code-area::-webkit-scrollbar { width: 5px; }
+  .code-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  /* Analysis */
+  .analysis-meta {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px;
+  }
+  .meta-chip {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--r); padding: 12px 14px;
+  }
+  .meta-chip-label { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 4px; }
+  .meta-chip-value { font-size: 14px; font-weight: 700; color: var(--text); }
+
+  .analysis-section { margin-bottom: 16px; }
+  .analysis-section-title { font-size: 12px; font-weight: 700; color: var(--sub); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .06em; }
+
+  .tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 9px; border-radius: 6px;
+    font-size: 11.5px; font-weight: 500; margin: 3px;
+  }
+  .tag-blue  { background: var(--accent-d);   color: var(--accent);   border: 1px solid rgba(96,165,250,.2); }
+  .tag-green { background: var(--success-d);  color: var(--success);  border: 1px solid rgba(52,211,153,.2); }
+  .tag-red   { background: var(--error-d);    color: var(--error);    border: 1px solid rgba(248,113,113,.2); }
+  .tag-purple{ background: var(--accent2-d);  color: var(--accent2);  border: 1px solid rgba(139,92,246,.2); }
+
+  /* Changes */
+  .change-rationale {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent2);
+    border-radius: var(--r-lg); padding: 16px 18px;
+    line-height: 1.7; color: var(--sub); font-size: 13px; margin-bottom: 14px;
+  }
+  .kw-section { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; margin-bottom: 12px; }
+  .kw-header { padding: 10px 16px; background: var(--surface3); border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 700; color: var(--sub); text-transform: uppercase; letter-spacing: .07em; }
+  .kw-body { padding: 12px 16px; }
+  .warning-box {
+    display: flex; align-items: flex-start; gap: 10px;
+    background: var(--warning-d); border: 1px solid rgba(251,191,36,.2);
+    border-radius: var(--r); padding: 11px 14px;
+    color: var(--warning); font-size: 13px; margin-bottom: 10px; line-height: 1.6;
+  }
+
+  /* ─── Toast ─── */
+  #toasts {
+    position: fixed; bottom: 20px; right: 20px;
+    z-index: 9999; display: flex; flex-direction: column; gap: 8px;
+  }
+  .toast {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--r-lg); padding: 12px 16px;
+    font-size: 13px; display: flex; align-items: center; gap: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.5); max-width: 340px;
+    animation: tIn .22s ease;
+  }
+  .toast.success { border-left: 3px solid var(--success); }
+  .toast.error   { border-left: 3px solid var(--error); }
+  .toast.info    { border-left: 3px solid var(--accent); }
+  @keyframes tIn  { from{opacity:0;transform:translateX(18px) scale(.96)} to{opacity:1;transform:none} }
+  @keyframes tOut { to{opacity:0;transform:translateX(18px) scale(.96)} }
+  .toast.out { animation: tOut .18s ease forwards; }
+  .toast-action {
+    margin-left: auto; padding: 3px 10px; flex-shrink: 0;
+    background: var(--surface3); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--accent); font-size: 12px; font-weight: 600;
+    cursor: pointer; text-decoration: none; white-space: nowrap;
+    transition: background .15s;
+  }
+  .toast-action:hover { background: var(--accent-d); }
+
+  @media (max-width: 860px) {
+    .workspace { grid-template-columns: 1fr; height: auto; overflow: visible; }
+    .form-panel { border-right: none; border-bottom: 1px solid var(--border); max-height: none; }
+    .output-panel { height: auto; min-height: 60vh; }
+    .analysis-meta { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ─── Header ─── -->
+<header>
+  <a class="logo" href="index.html">
+    <div class="logo-icon">📄</div>
+    <span class="logo-name">Resume Editor</span>
+    <span class="logo-tag">Beta</span>
+  </a>
+  <nav>
+    <a class="nav-a on" href="index.html">✦ New Resume</a>
+    <a class="nav-a" href="history.html">
+      🕐 History
+      <span class="nav-pill" id="historyCount" style="display:none">0</span>
+    </a>
+  </nav>
+  <div class="hdr-right">
+    <div class="status-pill">
+      <span class="dot" id="statusDot"></span>
+      <span id="modelLabel">Connecting…</span>
+    </div>
+  </div>
+</header>
+
+<!-- ─── Workspace ─── -->
+<div class="workspace">
+
+  <!-- Form -->
+  <div class="form-panel">
+    <div class="form-body">
+
+      <div class="section-hd">Job Details</div>
+
+      <div class="grid2">
+        <div class="field">
+          <div class="field-label">Job Role / Title</div>
+          <div class="input-wrap">
+            <span class="input-icon">💼</span>
+            <input id="jobRole" class="with-icon" type="text" placeholder="e.g. Backend Engineer" />
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">Company</div>
+          <div class="input-wrap">
+            <span class="input-icon">🏢</span>
+            <input id="company" class="with-icon" type="text" placeholder="e.g. Google" />
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">
+          Target Domain
+          <span class="opt">optional</span>
+        </div>
+        <div class="input-wrap">
+          <span class="input-icon">🎯</span>
+          <input id="targetDomain" class="with-icon" type="text" placeholder="e.g. FinTech, AI/ML, DevOps" />
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">
+          Job Description
+          <span class="word-count" id="wordCount">0 words</span>
+        </div>
+        <textarea id="jobDescription" rows="12"
+          placeholder="Paste the full job description here…"
+          oninput="updateWordCount()"></textarea>
+      </div>
+
+      <div class="info-box">
+        <span>📁</span>
+        <span>Resume, projects &amp; experience loaded from <code style="color:var(--accent);background:var(--accent-d);padding:1px 5px;border-radius:4px">base/</code> via server config.</span>
+      </div>
+
+      <div class="progress-wrap" id="progressWrap">
+        <div class="step-indicators">
+          <div class="step" id="step1">
+            <div class="step-dot">1</div>
+            <span>Analyzing JD</span>
+          </div>
+          <div class="step-line"></div>
+          <div class="step" id="step2">
+            <div class="step-dot">2</div>
+            <span>Tailoring resume</span>
+          </div>
+        </div>
+        <div class="progress-bar"><div class="progress-fill"></div></div>
+        <div class="status-msg" id="statusMsg"></div>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-primary" id="tailorBtn" onclick="tailorResume()">
+          <div class="spinner" id="spinner"></div>
+          <span id="tailorTxt">✦ Tailor Resume</span>
+        </button>
+        <button class="btn btn-secondary" id="analyzeBtn" onclick="analyzeJD()">Analyze JD</button>
+        <button class="btn btn-ghost" onclick="clearAll()">Clear</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Output -->
+  <div class="output-panel">
+
+    <div id="emptyState" class="empty-state" style="flex:1">
+      <div class="empty-gfx">✦</div>
+      <h3>Ready to tailor</h3>
+      <p>Fill in the job details and click <strong>Tailor Resume</strong> to generate your customized resume.</p>
+      <div class="empty-hint">
+        <span>💡</span>
+        <span>Tip: paste the full JD for the best keyword coverage</span>
+      </div>
+    </div>
+
+    <div id="outputArea" style="display:contents">
+      <div class="tabs-wrap">
+        <div class="tabs">
+          <button class="tab on" onclick="switchTab('summary')">Summary</button>
+          <button class="tab" onclick="switchTab('skills')">Skills</button>
+          <button class="tab" onclick="switchTab('projects')">Projects</button>
+          <button class="tab" onclick="switchTab('experience')">Experience</button>
+          <button class="tab" onclick="switchTab('latex')">LaTeX</button>
+          <button class="tab" onclick="switchTab('analysis')">JD Analysis</button>
+          <button class="tab" onclick="switchTab('changes')">Changes</button>
+        </div>
+      </div>
+
+      <div class="tab-body">
+        <div class="tab-pane on" id="tab-summary"><div id="summaryOut"></div></div>
+        <div class="tab-pane" id="tab-skills"><div id="skillsOut"></div></div>
+        <div class="tab-pane" id="tab-projects"><div id="projectsOut"></div></div>
+        <div class="tab-pane" id="tab-experience"><div id="experienceOut"></div></div>
+        <div class="tab-pane" id="tab-latex">
+          <div class="latex-toolbar">
+            <div class="latex-dots">
+              <div class="latex-dot" style="background:#f87171"></div>
+              <div class="latex-dot" style="background:#fbbf24"></div>
+              <div class="latex-dot" style="background:#34d399"></div>
+            </div>
+            <span style="font-size:12px;color:var(--muted);margin-left:4px">resume.tex</span>
+            <div style="margin-left:auto;display:flex;gap:6px">
+              <button class="btn btn-secondary btn-sm" onclick="copyLatex()">Copy</button>
+              <button class="btn btn-secondary btn-sm" onclick="downloadLatex()">Download</button>
+            </div>
+          </div>
+          <div class="code-area" id="latexOut"></div>
+        </div>
+        <div class="tab-pane" id="tab-analysis"><div id="analysisOut"></div></div>
+        <div class="tab-pane" id="tab-changes"><div id="changesOut"></div></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+const API = 'http://localhost:8000';
+let currentResult = null;
+
+/* ── Word count ── */
+function updateWordCount() {
+  const words = document.getElementById('jobDescription').value.trim().split(/\s+/).filter(Boolean).length;
+  document.getElementById('wordCount').textContent = `${words} word${words !== 1 ? 's' : ''}`;
+}
+
+/* ── Health ── */
+async function checkHealth() {
+  try {
+    const r = await fetch(`${API}/health`);
+    const d = await r.json();
+    document.getElementById('statusDot').style.background = 'var(--success)';
+    document.getElementById('modelLabel').textContent = d.model;
+  } catch {
+    document.getElementById('statusDot').style.background = 'var(--error)';
+    document.getElementById('modelLabel').textContent = 'Server offline';
+  }
+}
+
+/* ── History count ── */
+async function loadHistoryCount() {
+  try {
+    const r = await fetch(`${API}/api/history?limit=1`);
+    const d = await r.json();
+    const el = document.getElementById('historyCount');
+    if (d.total > 0) { el.textContent = d.total; el.style.display = 'inline-block'; }
+  } catch {}
+}
+
+/* ── Loading ── */
+function setLoading(on, step = 0) {
+  document.getElementById('tailorBtn').disabled = on;
+  document.getElementById('analyzeBtn').disabled = on;
+  document.getElementById('spinner').style.display = on ? 'block' : 'none';
+  document.getElementById('tailorTxt').textContent = on ? 'Processing…' : '✦ Tailor Resume';
+  document.getElementById('progressWrap').classList.toggle('on', on);
+
+  const s1 = document.getElementById('step1');
+  const s2 = document.getElementById('step2');
+  if (step === 1) { s1.className = 'step active'; s2.className = 'step'; }
+  if (step === 2) { s1.className = 'step done';   s2.className = 'step active'; }
+  if (!on)        { s1.className = 'step';         s2.className = 'step'; }
+}
+
+/* ── Tailor ── */
+async function tailorResume() {
+  const jobRole   = document.getElementById('jobRole').value.trim();
+  const company   = document.getElementById('company').value.trim();
+  const jobDesc   = document.getElementById('jobDescription').value.trim();
+  const domain    = document.getElementById('targetDomain').value.trim();
+  if (!jobRole || !company || !jobDesc)
+    return toast('Fill in Job Role, Company, and Job Description.', 'error');
+
+  setLoading(true, 1);
+  try {
+    const res = await fetch(`${API}/api/tailor-resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_role: jobRole, company, job_description: jobDesc, target_domain: domain || null }),
+    });
+    setLoading(true, 2);
+    const raw = await res.text();
+    let data;
+    try { data = JSON.parse(raw); } catch { throw new Error('Invalid server response. Check terminal.'); }
+    if (!res.ok) throw new Error(typeof data.detail === 'object' ? JSON.stringify(data.detail) : (data.detail || 'Server error'));
+    currentResult = data;
+    renderOutput(data);
+    loadHistoryCount();
+    toast('Resume tailored successfully!', 'success', 'View History', 'history.html');
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  } finally {
+    setLoading(false);
+  }
+}
+
+/* ── Analyze JD ── */
+async function analyzeJD() {
+  const jobRole = document.getElementById('jobRole').value.trim();
+  const jobDesc = document.getElementById('jobDescription').value.trim();
+  if (!jobRole || !jobDesc) return toast('Fill in Job Role and Job Description first.', 'error');
+  setLoading(true, 1);
+  try {
+    const res = await fetch(`${API}/api/analyze-jd`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_role: jobRole, job_description: jobDesc }),
+    });
+    const raw = await res.text();
+    let data;
+    try { data = JSON.parse(raw); } catch { throw new Error('Invalid server response.'); }
+    if (!res.ok) throw new Error(data.detail || 'Failed');
+    renderOutput({ jd_analysis: data });
+    switchTab('analysis');
+    toast('Analysis complete.', 'success');
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  } finally {
+    setLoading(false);
+  }
+}
+
+/* ── Render output ── */
+function renderOutput(data) {
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('outputArea').style.display = 'contents';
+
+  /* Summary */
+  if (data.tailored_summary)
+    document.getElementById('summaryOut').innerHTML =
+      `<div class="summary-card">${esc(data.tailored_summary)}</div>`;
+
+  /* Skills */
+  if (data.tailored_skills) {
+    document.getElementById('skillsOut').innerHTML = Object.entries(data.tailored_skills).map(([cat, val]) => {
+      const items = val.split(/[,;]+/).map(s => s.trim()).filter(Boolean);
+      return `<div class="skill-group">
+        <div class="skill-group-label">${esc(cat)}</div>
+        <div class="skill-tags">${items.map(s => `<span class="skill-tag">${esc(s)}</span>`).join('')}</div>
+      </div>`;
+    }).join('');
+  }
+
+  /* Projects */
+  if (data.tailored_projects) {
+    document.getElementById('projectsOut').innerHTML = data.tailored_projects.map(p => {
+      const techs = (p.tech_stack || '').split(/[,;]+/).map(s => s.trim()).filter(Boolean);
+      return `<div class="project-card">
+        <div class="project-card-head">
+          <div>
+            <div class="project-name">${esc(p.name)}</div>
+            ${techs.length ? `<div class="project-tech">${techs.map(t => `<span class="tech-pill">${esc(t)}</span>`).join('')}</div>` : ''}
+          </div>
+        </div>
+        <div class="project-card-body">
+          <ul>${(p.bullets || []).map(b => `<li>${esc(b)}</li>`).join('')}</ul>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  /* Experience */
+  if (data.tailored_experience) {
+    document.getElementById('experienceOut').innerHTML = Object.entries(data.tailored_experience).map(([co, buls]) =>
+      `<div class="exp-item">
+        <div class="exp-company">${esc(co)}</div>
+        <ul>${(buls || []).map(b => `<li>${esc(b)}</li>`).join('')}</ul>
+      </div>`).join('');
+  }
+
+  /* LaTeX */
+  if (data.updated_latex)
+    document.getElementById('latexOut').textContent = data.updated_latex;
+
+  /* JD Analysis */
+  if (data.jd_analysis) {
+    const a = data.jd_analysis;
+    document.getElementById('analysisOut').innerHTML = `
+      <div class="analysis-meta">
+        <div class="meta-chip">
+          <div class="meta-chip-label">Role</div>
+          <div class="meta-chip-value">${esc(a.target_role || '—')}</div>
+        </div>
+        <div class="meta-chip">
+          <div class="meta-chip-label">Level</div>
+          <div class="meta-chip-value">${esc(a.experience_level || '—')}</div>
+        </div>
+        <div class="meta-chip">
+          <div class="meta-chip-label">Domain</div>
+          <div class="meta-chip-value">${esc(a.domain || '—')}</div>
+        </div>
+      </div>
+
+      ${a.summary ? `<div class="summary-card" style="margin-bottom:16px;border-left-color:var(--accent2)">${esc(a.summary)}</div>` : ''}
+
+      <div class="analysis-section">
+        <div class="analysis-section-title">Must-have Skills</div>
+        <div>${(a.must_have_skills || []).map(s => `<span class="tag tag-blue">${esc(s)}</span>`).join('')}</div>
+      </div>
+      <div class="analysis-section">
+        <div class="analysis-section-title">Preferred Skills</div>
+        <div>${(a.preferred_skills || []).map(s => `<span class="tag tag-green">${esc(s)}</span>`).join('')}</div>
+      </div>
+      <div class="analysis-section">
+        <div class="analysis-section-title">ATS Keywords</div>
+        <div>${(a.ats_keywords || []).map(s => `<span class="tag tag-purple">${esc(s)}</span>`).join('')}</div>
+      </div>
+      <div class="analysis-section">
+        <div class="analysis-section-title">Key Responsibilities</div>
+        <ul style="padding-left:16px;color:var(--sub);line-height:1.9">
+          ${(a.responsibilities || []).map(r => `<li>${esc(r)}</li>`).join('')}
+        </ul>
+      </div>`;
+  }
+
+  /* Changes */
+  if (data.keyword_coverage || data.change_rationale || data.warnings) {
+    const kw = data.keyword_coverage || {};
+    document.getElementById('changesOut').innerHTML = `
+      ${(data.warnings || []).map(w => `<div class="warning-box"><span>⚠</span><span>${esc(w)}</span></div>`).join('')}
+
+      ${data.change_rationale ? `
+        <div style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:8px">What Changed &amp; Why</div>
+        <div class="change-rationale">${esc(data.change_rationale)}</div>` : ''}
+
+      <div class="kw-section">
+        <div class="kw-header">Keyword Coverage</div>
+        <div class="kw-body">
+          <div style="margin-bottom:10px">
+            <div style="font-size:11.5px;color:var(--success);font-weight:600;margin-bottom:6px">✓ Covered (${(kw.covered||[]).length})</div>
+            <div>${(kw.covered || []).map(k => `<span class="tag tag-green">${esc(k)}</span>`).join('') || '<span style="color:var(--muted);font-size:12px">None detected</span>'}</div>
+          </div>
+          <div>
+            <div style="font-size:11.5px;color:var(--error);font-weight:600;margin-bottom:6px">✗ Missing (${(kw.missing||[]).length})</div>
+            <div>${(kw.missing || []).map(k => `<span class="tag tag-red">${esc(k)}</span>`).join('') || '<span style="color:var(--success);font-size:12px">None — great match!</span>'}</div>
+          </div>
+        </div>
+      </div>
+
+      ${data.pdf_available ? `<a href="${API}/api/history/${data.id}/pdf" target="_blank" class="btn btn-secondary btn-sm" style="display:inline-flex;margin-top:10px">⬇ Download PDF</a>` : ''}`;
+  }
+
+  switchTab('summary');
+}
+
+/* ── Tabs ── */
+const TABS = ['summary','skills','projects','experience','latex','analysis','changes'];
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('on', TABS[i] === name));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('on'));
+  document.getElementById(`tab-${name}`).classList.add('on');
+}
+
+/* ── LaTeX ── */
+function copyLatex() {
+  navigator.clipboard.writeText(document.getElementById('latexOut').textContent)
+    .then(() => toast('Copied to clipboard!', 'success'));
+}
+function downloadLatex() {
+  if (!currentResult) return;
+  const blob = new Blob([currentResult.updated_latex], { type: 'text/plain' });
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(blob),
+    download: `${currentResult.company}_${currentResult.role}_resume.tex`.replace(/\s+/g, '_'),
+  });
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+/* ── Clear ── */
+function clearAll() {
+  ['jobRole','company','targetDomain','jobDescription'].forEach(id => document.getElementById(id).value = '');
+  updateWordCount();
+  document.getElementById('emptyState').style.display = 'flex';
+  document.getElementById('outputArea').style.display = 'none';
+  currentResult = null;
+}
+
+/* ── Toast ── */
+function toast(msg, type = 'info', actionLabel = null, actionHref = null) {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  const icons = { success: '✓', error: '✕', info: 'ℹ' };
+  el.innerHTML = `<span style="font-size:16px;line-height:1">${icons[type]||'ℹ'}</span>
+    <span style="flex:1">${msg}</span>
+    ${actionLabel ? `<a class="toast-action" href="${actionHref}">${actionLabel} →</a>` : ''}`;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 200); }, actionLabel ? 5500 : 3200);
+}
+
+/* ── Escape ── */
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+checkHealth();
+loadHistoryCount();
+setInterval(checkHealth, 30000);
+</script>
+</body>
+</html>
