@@ -56,9 +56,70 @@ DISCOURAGED_SOFT_SKILLS = {
     "stakeholder management",
 }
 
+LANGUAGE_HINTS = {
+    "python", "java", "javascript", "typescript", "go", "golang", "sql", "dart",
+    "bash", "shell", "rust", "kotlin", "swift", "c", "c++", "c#",
+}
+FRAMEWORK_HINTS = {
+    "fastapi", "flask", "django", "spring", "react", "next", "next.js", "node",
+    "express", "flutter", "react native", "angular", "vue", "tensorflow", "pytorch",
+}
+DATABASE_HINTS = {
+    "postgres", "postgresql", "mysql", "mongodb", "redis", "firebase", "dynamodb",
+    "database", "databases", "sqlite", "vector db", "vector databases",
+}
+CLOUD_DEVOPS_HINTS = {
+    "aws", "gcp", "azure", "docker", "kubernetes", "terraform", "linux", "ci/cd",
+    "devops", "helm", "cloud", "git",
+}
+
+NON_SKILL_PHRASE_HINTS = {
+    "degree",
+    "related field",
+    "willingness",
+    "ability to",
+    "abilities",
+    "communication and teamwork",
+    "project experience",
+    "internship",
+    "strong problem-solving",
+    "attention to detail",
+    "software applications",
+    "knowledge of",
+    "previous",
+    # vague phrases that appear in JDs but are not stackable skills
+    "computer science",
+    "code review",
+    "code reviews",
+    "best practice",
+    "best practices",
+    "version control system",
+    "version control systems",
+    "software development",
+    "software engineering",
+    "problem solving",
+    "analytical skill",
+}
+
+TECH_SIGNAL_HINTS = LANGUAGE_HINTS | FRAMEWORK_HINTS | DATABASE_HINTS | CLOUD_DEVOPS_HINTS | {
+    "api", "rest", "restful", "testing", "automation", "debugging", "microservices",
+    "distributed", "grpc", "oop", "sdlc", "git", "version control", "c++", "c#",
+    ".net", "spring", "redis", "graphql", "numpy", "pandas",
+}
+
+MAX_SUMMARY_WORDS = 38
+MAX_BULLET_WORDS = 24
+
 
 def _normalize_ws(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
+
+
+def _trim_to_word_limit(text: str, max_words: int) -> str:
+    words = _normalize_ws(text).split()
+    if len(words) <= max_words:
+        return " ".join(words)
+    return " ".join(words[:max_words]).rstrip(".,;:") + "."
 
 
 def _remove_obvious_targeting(text: str) -> str:
@@ -89,6 +150,152 @@ def _choose_subtle_summary(current_summary: str, candidate_summary: str) -> str:
 
 def _split_csv_items(text: str) -> list[str]:
     return [item.strip() for item in (text or "").split(",") if item.strip()]
+
+
+def _dedupe(items: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        cleaned = _normalize_ws(item)
+        key = cleaned.lower()
+        if not cleaned or key in seen:
+            continue
+        seen.add(key)
+        out.append(cleaned)
+    return out
+
+
+def _normalize_skill_key(skill: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (skill or "").lower()).strip()
+
+
+def _build_skill_presence_set(skills_map: dict[str, str]) -> set[str]:
+    present: set[str] = set()
+    for value in skills_map.values():
+        for item in _split_csv_items(value):
+            key = _normalize_skill_key(item)
+            if key:
+                present.add(key)
+    return present
+
+
+def _skill_tokens(text: str) -> set[str]:
+    """Extract lowercase word tokens from a skill string (handles c++, ci/cd, next.js etc.)."""
+    return set(re.findall(r'[a-z0-9][a-z0-9+#./]*', text.lower()))
+
+
+def _hint_matches(hint: str, low: str, tokens: set[str]) -> bool:
+    """Match a hint against text, using token-exact match for short hints to avoid
+    false positives like 'c' matching 'science' or 'go' matching 'good'."""
+    if len(hint) <= 3:
+        return hint in tokens
+    return hint in low
+
+
+def _has_tech_signal(low: str, tokens: set[str]) -> bool:
+    return any(_hint_matches(signal, low, tokens) for signal in TECH_SIGNAL_HINTS)
+
+
+def _is_valid_jd_skill_candidate(skill: str) -> bool:
+    cleaned = _normalize_ws(skill)
+    if not cleaned:
+        return False
+
+    low = cleaned.lower()
+    if any(h in low for h in NON_SKILL_PHRASE_HINTS):
+        return False
+
+    # Reject sentence-like requirements and long prose fragments.
+    words = re.findall(r"[a-zA-Z0-9+#./&-]+", cleaned)
+    if len(words) > 4 or len(cleaned) > 48:
+        return False
+
+    if any(p in cleaned for p in [";", ":", ".", "\n"]):
+        return False
+
+    tokens = _skill_tokens(cleaned)
+    if _has_tech_signal(low, tokens):
+        return True
+
+    # Allow compact acronyms like OOP, SDLC, NLP when not caught above.
+    compact = re.sub(r"[^A-Za-z]", "", cleaned)
+    if compact.isupper() and 2 <= len(compact) <= 8:
+        return True
+
+    return False
+
+
+def _is_skill_present(skill: str, present_keys: set[str]) -> bool:
+    key = _normalize_skill_key(skill)
+    if not key:
+        return True
+    if key in present_keys:
+        return True
+    tokens = [t for t in key.split() if len(t) > 2]
+    if not tokens:
+        return key in present_keys
+    return any(all(t in existing for t in tokens) for existing in present_keys)
+
+
+def _choose_skill_bucket(skill: str) -> str:
+    low = skill.lower()
+    tokens = _skill_tokens(skill)
+
+    def hits(hints: set) -> bool:
+        return any(_hint_matches(h, low, tokens) for h in hints)
+
+    if hits(LANGUAGE_HINTS):
+        return "Languages"
+    if hits(FRAMEWORK_HINTS):
+        return "Frameworks"
+    if hits(DATABASE_HINTS):
+        return "Databases"
+    if hits(CLOUD_DEVOPS_HINTS):
+        return "Cloud & DevOps"
+    return "Specialized"
+
+
+def _dedupe_skills_map(skills_map: dict[str, str]) -> dict[str, str]:
+    deduped: dict[str, str] = {}
+    seen: set[str] = set()
+    for category, raw in skills_map.items():
+        kept: list[str] = []
+        for item in _split_csv_items(raw):
+            key = _normalize_skill_key(item)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            kept.append(item)
+        if kept:
+            deduped[category] = ", ".join(kept)
+    return deduped
+
+
+def _adjust_skills_for_jd(skills_map: dict[str, str], jd_analysis: dict) -> dict[str, str]:
+    adjusted = {k: v for k, v in skills_map.items()}
+    for cat in ["Languages", "Frameworks", "Databases", "Cloud & DevOps", "Specialized", "Soft Skills"]:
+        adjusted.setdefault(cat, "")
+
+    present = _build_skill_presence_set(adjusted)
+    jd_skills = _dedupe(
+        list(jd_analysis.get("must_have_skills", []))
+        + list(jd_analysis.get("preferred_skills", []))
+        + list(jd_analysis.get("ats_keywords", []))
+    )
+
+    for skill in jd_skills:
+        cleaned = _normalize_ws(skill)
+        if not _is_valid_jd_skill_candidate(cleaned):
+            continue
+        if not cleaned or _is_skill_present(cleaned, present):
+            continue
+        bucket = _choose_skill_bucket(cleaned)
+        existing = _split_csv_items(adjusted.get(bucket, ""))
+        existing.append(cleaned)
+        adjusted[bucket] = ", ".join(existing)
+        present.add(_normalize_skill_key(cleaned))
+
+    return _dedupe_skills_map(adjusted)
 
 
 def _is_real_soft_skill(item: str) -> bool:
@@ -158,66 +365,109 @@ def _build_jd_tokens(jd_analysis: dict) -> set[str]:
     return _tokenize_for_rank(" ".join(parts))
 
 
-def _rank_projects(bank_text: str, jd_analysis: dict, n_slots: int) -> str:
-    """
-    Parse the projects bank, score each project against JD tokens,
-    return the top (n_slots * PROJECT_CANDIDATE_MULTIPLIER) as plain text.
-    Prevents the LLM from seeing irrelevant projects and picking randomly.
-    """
-    all_projects = latex_utils.extract_projects(bank_text)
-    if not all_projects:
-        return bank_text  # fallback: return raw if parsing fails
+def _normalize_key(value: str) -> str:
+    return _normalize_ws(value).lower()
 
-    jd_tokens = _build_jd_tokens(jd_analysis)
-    limit = n_slots * settings.PROJECT_CANDIDATE_MULTIPLIER
 
-    scored = []
-    for proj in all_projects:
-        combined = " ".join([
-            proj.get("name", ""),
-            proj.get("tech_stack", ""),
-            " ".join(proj.get("bullets", [])),
-        ])
-        scored.append((_score_entry(combined, jd_tokens), proj))
-
-    scored.sort(key=lambda x: x[0], reverse=True)
-    top = scored[:limit]
-
+def _render_projects_for_prompt(projects: list[dict]) -> str:
     lines = []
-    for _, proj in top:
-        lines.append(f"Project: {proj['full_name']}")
-        lines.append(f"Tech Stack: {proj['tech_stack']}")
+    for proj in projects:
+        lines.append(f"Project: {proj.get('full_name', proj.get('name', ''))}")
+        lines.append(f"Tech Stack: {proj.get('tech_stack', '')}")
         for b in proj.get("bullets", []):
             lines.append(f"  - {b}")
         lines.append("")
     return "\n".join(lines)
 
 
-def _rank_experience(bank_text: str, jd_analysis: dict) -> str:
-    """
-    Parse the experience bank, score each company block against JD tokens,
-    return all entries sorted by relevance.
-    """
-    all_exp = latex_utils.extract_experience(bank_text)
-    if not all_exp:
-        return bank_text
-
-    jd_tokens = _build_jd_tokens(jd_analysis)
-
-    scored = []
-    for company, bullets in all_exp.items():
-        combined = company + " " + " ".join(bullets)
-        scored.append((_score_entry(combined, jd_tokens), company, bullets))
-
-    scored.sort(key=lambda x: x[0], reverse=True)
-
+def _render_experience_for_prompt(experience: list[tuple[str, list[str]]]) -> str:
     lines = []
-    for _, company, bullets in scored:
+    for company, bullets in experience:
         lines.append(f"Company: {company}")
         for b in bullets:
             lines.append(f"  - {b}")
         lines.append("")
     return "\n".join(lines)
+
+
+def _rank_projects(
+    all_projects: list[dict],
+    jd_analysis: dict,
+    n_slots: int,
+    selected_project_names: list[str] | None = None,
+) -> list[dict]:
+    if not all_projects:
+        return []
+
+    jd_tokens = _build_jd_tokens(jd_analysis)
+    selected = {_normalize_key(name) for name in (selected_project_names or [])}
+    limit = max(1, n_slots * settings.PROJECT_CANDIDATE_MULTIPLIER)
+
+    scored: list[tuple[int, int, dict]] = []
+    for proj in all_projects:
+        combined = " ".join([
+            proj.get("name", ""),
+            proj.get("tech_stack", ""),
+            " ".join(proj.get("bullets", [])),
+        ])
+        score = _score_entry(combined, jd_tokens)
+        proj_key = _normalize_key(proj.get("name", ""))
+        is_selected = 1 if proj_key in selected else 0
+        scored.append((is_selected, score, proj))
+
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    top = [proj for _, _, proj in scored[:limit]]
+
+    if selected:
+        chosen_keys = {_normalize_key(p.get("name", "")) for p in top}
+        for _, _, proj in scored:
+            key = _normalize_key(proj.get("name", ""))
+            if key in selected and key not in chosen_keys:
+                top.append(proj)
+                chosen_keys.add(key)
+
+    return top
+
+
+def _rank_experience(
+    all_experience: dict[str, list[str]],
+    jd_analysis: dict,
+    selected_experience_companies: list[str] | None = None,
+) -> list[tuple[str, list[str]]]:
+    if not all_experience:
+        return []
+
+    jd_tokens = _build_jd_tokens(jd_analysis)
+    selected = {_normalize_key(name) for name in (selected_experience_companies or [])}
+
+    scored: list[tuple[int, int, str, list[str]]] = []
+    for company, bullets in all_experience.items():
+        key = _normalize_key(company)
+        combined = company + " " + " ".join(bullets)
+        score = _score_entry(combined, jd_tokens)
+        is_selected = 1 if key in selected else 0
+        scored.append((is_selected, score, company, bullets))
+
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return [(company, bullets) for _, _, company, bullets in scored]
+
+
+def _merge_skills(current_skills: dict, ai_skills: dict, custom_skills: dict | None) -> dict:
+    # Preserve baseline current skills and only apply explicit user edits.
+    merged: dict[str, str] = dict(current_skills)
+    custom = custom_skills or {}
+
+    for category, value in custom.items():
+        if value:
+            merged[category] = value
+
+    # If a category is blank in the resume, let AI fill only that blank bucket.
+    for category, value in ai_skills.items():
+        if category not in merged or not _normalize_ws(merged.get(category, "")):
+            if value:
+                merged[category] = value
+
+    return _dedupe_skills_map(merged)
 
 
 # ── Real ATS score: computed in Python after tailoring, never hallucinated ──
@@ -262,17 +512,49 @@ async def tailor(
     experience_bank: str,
     jd_analysis: dict,
     target_domain: str | None,
+    selected_project_names: list[str] | None = None,
+    selected_experience_companies: list[str] | None = None,
+    custom_skills: dict[str, str] | None = None,
 ) -> dict:
     current_summary = latex_utils.extract_summary(latex_resume)
     current_skills = latex_utils.extract_skills(latex_resume)
     current_projects = latex_utils.extract_projects(latex_resume)
     current_experience = latex_utils.extract_experience(latex_resume)
+    current_experience_blocks = latex_utils.extract_experience_blocks(latex_resume)
+    all_bank_projects = latex_utils.extract_projects(projects_bank)
+    all_bank_experience_blocks = latex_utils.extract_experience_blocks(experience_bank)
+    all_bank_experience = {entry["company"]: entry["bullets"] for entry in all_bank_experience_blocks}
+    if not all_bank_experience:
+        all_bank_experience = latex_utils.extract_experience(experience_bank)
+    project_full_name_map = {
+        _normalize_key(p.get("name", "")): p.get("full_name", p.get("name", ""))
+        for p in all_bank_projects
+    }
 
     n_slots = len(current_projects)
 
     # Pre-rank banks — LLM only sees the most relevant candidates
-    ranked_projects_bank = _rank_projects(projects_bank, jd_analysis, n_slots)
-    ranked_experience_bank = _rank_experience(experience_bank, jd_analysis)
+    ranked_projects = _rank_projects(
+        all_projects=all_bank_projects,
+        jd_analysis=jd_analysis,
+        n_slots=n_slots,
+        selected_project_names=selected_project_names,
+    )
+    ranked_experience = _rank_experience(
+        all_experience=all_bank_experience,
+        jd_analysis=jd_analysis,
+        selected_experience_companies=selected_experience_companies,
+    )
+    if not ranked_projects:
+        ranked_projects = current_projects
+    if not ranked_experience:
+        ranked_experience = list(current_experience.items())
+    ranked_projects_bank = _render_projects_for_prompt(ranked_projects)
+    ranked_experience_bank = _render_experience_for_prompt(ranked_experience)
+
+    experience_bullet_cap = max(
+        1, max((len(e.get("bullets", [])) for e in current_experience_blocks), default=1)
+    )
 
     messages = [
         {"role": "system", "content": prompt.SYSTEM},
@@ -285,6 +567,10 @@ async def tailor(
             current_projects=current_projects,
             current_experience=current_experience,
             target_domain=target_domain,
+            selected_project_names=selected_project_names,
+            selected_experience_companies=selected_experience_companies,
+            custom_skills=custom_skills,
+            experience_bullet_cap=experience_bullet_cap,
         )},
     ]
 
@@ -298,6 +584,13 @@ async def tailor(
         current_projects,
         current_summary,
         current_skills,
+        jd_analysis,
+        current_experience,
+        current_experience_blocks,
+        all_bank_experience_blocks,
+        project_full_name_map,
+        selected_experience_companies,
+        custom_skills,
     )
 
     issues = latex_guard.validate(updated_latex)
@@ -311,42 +604,210 @@ async def tailor(
     return result
 
 
+def apply_manual_edits(
+    latex_resume: str,
+    tailored_summary: str | None = None,
+    tailored_skills: dict[str, str] | None = None,
+    tailored_projects: list[dict] | None = None,
+    tailored_experience: dict[str, list[str]] | None = None,
+) -> dict:
+    current_summary = latex_utils.extract_summary(latex_resume)
+    current_skills = latex_utils.extract_skills(latex_resume)
+    current_projects = latex_utils.extract_projects(latex_resume)
+    current_experience = latex_utils.extract_experience(latex_resume)
+    current_experience_blocks = latex_utils.extract_experience_blocks(latex_resume)
+
+    project_full_name_map = {
+        _normalize_key(p.get("name", "")): p.get("full_name", p.get("name", ""))
+        for p in current_projects
+    }
+
+    result: dict = {
+        "tailored_summary": tailored_summary if tailored_summary is not None else current_summary,
+        "tailored_skills": tailored_skills or {},
+        "tailored_projects": tailored_projects or current_projects,
+        "tailored_experience": tailored_experience or current_experience,
+    }
+
+    updated_latex = _apply_changes(
+        latex_resume,
+        result,
+        current_projects,
+        current_summary,
+        current_skills,
+        {},
+        current_experience,
+        current_experience_blocks,
+        current_experience_blocks,
+        project_full_name_map,
+        list((tailored_experience or {}).keys()),
+        tailored_skills,
+    )
+
+    issues = latex_guard.validate(updated_latex)
+    if issues:
+        result.setdefault("warnings", []).extend(issues)
+
+    result["updated_latex"] = updated_latex
+    return result
+
+
 def _apply_changes(
     latex: str,
     result: dict,
     original_projects: list[dict],
     current_summary: str,
     current_skills: dict,
+    jd_analysis: dict,
+    current_experience: dict,
+    current_experience_blocks: list[dict],
+    all_bank_experience_blocks: list[dict],
+    project_full_name_map: dict[str, str],
+    selected_experience_companies: list[str] | None,
+    custom_skills: dict[str, str] | None,
 ) -> str:
-    if result.get("tailored_summary"):
-        subtle_summary = _choose_subtle_summary(current_summary, result["tailored_summary"])
+    project_bullet_cap = max(1, max((len(p.get("bullets", [])) for p in original_projects), default=1))
+    experience_bullet_cap = max(1, max((len(e.get("bullets", [])) for e in current_experience_blocks), default=1))
+
+    candidate_summary = result.get("tailored_summary") or ""
+    subtle_summary = _choose_subtle_summary(current_summary, candidate_summary)
+    subtle_summary = _trim_to_word_limit(subtle_summary or current_summary, MAX_SUMMARY_WORDS)
+    if subtle_summary:
         result["tailored_summary"] = subtle_summary
         latex = latex_utils.replace_summary(latex, subtle_summary)
+    else:
+        result["tailored_summary"] = current_summary
 
-    if result.get("tailored_skills") and isinstance(result["tailored_skills"], dict):
-        tailored_skills = result["tailored_skills"]
+    tailored_skills_payload = result.get("tailored_skills") if isinstance(result.get("tailored_skills"), dict) else {}
+    if tailored_skills_payload or custom_skills or jd_analysis:
+        tailored_skills = _merge_skills(current_skills, tailored_skills_payload, custom_skills)
+        tailored_skills = _adjust_skills_for_jd(tailored_skills, jd_analysis)
         tailored_soft = tailored_skills.get("Soft Skills", "")
         current_soft = current_skills.get("Soft Skills", "")
         tailored_skills["Soft Skills"] = _sanitize_soft_skills(tailored_soft, current_soft)
-        latex = latex_utils.replace_skills(latex, result["tailored_skills"])
+        result["tailored_skills"] = tailored_skills
+        latex = latex_utils.replace_skills(latex, tailored_skills)
 
+    slot_count = len(original_projects)
+    cleaned_projects: list[dict] = []
     for proj in result.get("tailored_projects", []):
-        name = proj.get("name", "")
-        original = next((p for p in original_projects if p["name"] == name), None)
-        full_name = original.get("full_name", name) if original else name
+        name = _normalize_ws(proj.get("name", ""))
+        if not name:
+            continue
         cleaned_bullets = [_remove_obvious_targeting(b) for b in proj.get("bullets", [])]
+        cleaned_bullets = [_trim_to_word_limit(b, MAX_BULLET_WORDS) for b in cleaned_bullets]
         cleaned_bullets = [b for b in cleaned_bullets if b]
-        latex = latex_utils.replace_project_bullets(
-            latex,
-            full_name,
-            cleaned_bullets,
-            proj.get("tech_stack", ""),
-        )
+        cleaned_bullets = cleaned_bullets[:project_bullet_cap]
+        if not cleaned_bullets:
+            continue
 
-    for company, bullets in result.get("tailored_experience", {}).items():
-        cleaned_bullets = [_remove_obvious_targeting(b) for b in bullets]
-        cleaned_bullets = [b for b in cleaned_bullets if b]
-        if cleaned_bullets:
-            latex = latex_utils.replace_experience_bullets(latex, company, cleaned_bullets)
+        cleaned_projects.append({
+            "name": name,
+            "full_name": project_full_name_map.get(_normalize_key(name), name),
+            "tech_stack": proj.get("tech_stack", ""),
+            "bullets": cleaned_bullets,
+        })
+
+    existing = {_normalize_key(p.get("name", "")) for p in cleaned_projects}
+    for original in original_projects:
+        if len(cleaned_projects) >= slot_count:
+            break
+        key = _normalize_key(original.get("name", ""))
+        if key in existing:
+            continue
+        cleaned_projects.append({
+            "name": original.get("name", ""),
+            "full_name": original.get("full_name", original.get("name", "")),
+            "tech_stack": original.get("tech_stack", ""),
+            "bullets": original.get("bullets", []),
+        })
+        existing.add(key)
+
+    if cleaned_projects:
+        cleaned_projects = cleaned_projects[:slot_count] if slot_count > 0 else cleaned_projects
+        result["tailored_projects"] = cleaned_projects
+        latex = latex_utils.replace_projects_section(latex, cleaned_projects)
+
+    experience_slot_count = len(current_experience_blocks)
+    current_block_map = {
+        _normalize_key(entry.get("company", "")): entry
+        for entry in current_experience_blocks
+        if entry.get("company")
+    }
+    bank_block_map = {
+        _normalize_key(entry.get("company", "")): entry
+        for entry in all_bank_experience_blocks
+        if entry.get("company")
+    }
+
+    raw_experience = result.get("tailored_experience", {})
+    ai_experience: dict[str, list[str]] = {}
+    if isinstance(raw_experience, dict):
+        for company, bullets in raw_experience.items():
+            cleaned_bullets = [_remove_obvious_targeting(b) for b in (bullets or [])]
+            cleaned_bullets = [_trim_to_word_limit(b, MAX_BULLET_WORDS) for b in cleaned_bullets]
+            cleaned_bullets = [b for b in cleaned_bullets if b]
+            cleaned_bullets = cleaned_bullets[:experience_bullet_cap]
+            if cleaned_bullets:
+                ai_experience[_normalize_key(company)] = cleaned_bullets
+
+    ordered_keys: list[str] = []
+    seen_keys: set[str] = set()
+
+    for company in (selected_experience_companies or []):
+        key = _normalize_key(company)
+        if key and key not in seen_keys:
+            ordered_keys.append(key)
+            seen_keys.add(key)
+
+    for key in ai_experience.keys():
+        if key not in seen_keys:
+            ordered_keys.append(key)
+            seen_keys.add(key)
+
+    chosen_entries: list[dict] = []
+    used_keys: set[str] = set()
+
+    for key in ordered_keys:
+        base_entry = bank_block_map.get(key) or current_block_map.get(key)
+        if not base_entry:
+            continue
+        chosen_entries.append({
+            "company": base_entry.get("company", ""),
+            "header": base_entry.get("header", ""),
+            "bullets": [
+                _trim_to_word_limit(b, MAX_BULLET_WORDS)
+                for b in ai_experience.get(key, base_entry.get("bullets", []))[:experience_bullet_cap]
+            ],
+        })
+        used_keys.add(key)
+        if experience_slot_count and len(chosen_entries) >= experience_slot_count:
+            break
+
+    for entry in current_experience_blocks:
+        key = _normalize_key(entry.get("company", ""))
+        if not key or key in used_keys:
+            continue
+        chosen_entries.append({
+            "company": entry.get("company", ""),
+            "header": entry.get("header", ""),
+            "bullets": [
+                _trim_to_word_limit(b, MAX_BULLET_WORDS)
+                for b in ai_experience.get(key, entry.get("bullets", []))[:experience_bullet_cap]
+            ],
+        })
+        used_keys.add(key)
+        if experience_slot_count and len(chosen_entries) >= experience_slot_count:
+            break
+
+    if chosen_entries:
+        if experience_slot_count > 0:
+            chosen_entries = chosen_entries[:experience_slot_count]
+        result["tailored_experience"] = {
+            entry.get("company", ""): entry.get("bullets", [])
+            for entry in chosen_entries
+            if entry.get("company")
+        }
+        latex = latex_utils.replace_experience_section(latex, chosen_entries)
 
     return latex

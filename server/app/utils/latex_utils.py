@@ -16,10 +16,12 @@ def extract_projects(latex: str) -> list[dict]:
     section_match = re.search(
         r'\\section\{Projects\}(.*?)\\section\{Skills\}', latex, re.DOTALL
     )
-    if not section_match:
-        return projects
+    if section_match:
+        content = section_match.group(1)
+    else:
+        # Projects bank may not contain section wrappers; parse the whole text.
+        content = latex
 
-    content = section_match.group(1)
     blocks = re.split(r'(?=\\textbf\{)', content)
 
     for block in blocks:
@@ -30,6 +32,9 @@ def extract_projects(latex: str) -> list[dict]:
         name_part = re.sub(r'\s*\(.*?\)', '', raw_name).strip()
 
         ts_match = re.search(r'\\textit\{Tech Stack:\s*([^}]+)\}', block)
+        if not ts_match:
+            # Experience entries have no Tech Stack marker.
+            continue
         tech_stack = ts_match.group(1).strip() if ts_match else ""
 
         bullets = re.findall(r'\\item\s+(.*?)(?=\\item|\\end\{highlights\})', block, re.DOTALL)
@@ -42,26 +47,42 @@ def extract_projects(latex: str) -> list[dict]:
 
 def extract_experience(latex: str) -> dict:
     experience = {}
+    for entry in extract_experience_blocks(latex):
+        if entry.get("company") and entry.get("bullets"):
+            experience[entry["company"]] = entry["bullets"]
+    return experience
+
+
+def extract_experience_blocks(latex: str) -> list[dict]:
+    entries: list[dict] = []
     section_match = re.search(
         r'\\section\{Experience\}(.*?)\\section\{Projects\}', latex, re.DOTALL
     )
-    if not section_match:
-        return experience
+    if section_match:
+        content = section_match.group(1)
+    else:
+        section_to_end = re.search(r'\\section\{Experience\}(.*)$', latex, re.DOTALL)
+        content = section_to_end.group(1) if section_to_end else latex
 
-    content = section_match.group(1)
     blocks = re.split(r'(?=\\textbf\{)', content)
-
     for block in blocks:
         name_match = re.match(r'\\textbf\{([^}]+)\}', block)
-        if not name_match:
+        if not name_match or "Tech Stack:" in block:
             continue
+
+        begin = re.search(r'\\begin\{highlights\}', block)
+        end = re.search(r'\\end\{highlights\}', block)
+        if not begin or not end:
+            continue
+
         company = name_match.group(1).strip()
+        header = block[:begin.start()].rstrip()
         bullets = re.findall(r'\\item\s+(.*?)(?=\\item|\\end\{highlights\})', block, re.DOTALL)
         bullets = [b.strip() for b in bullets if b.strip()]
         if bullets:
-            experience[company] = bullets
+            entries.append({"company": company, "header": header, "bullets": bullets})
 
-    return experience
+    return entries
 
 
 def replace_summary(latex: str, new_summary: str) -> str:
@@ -121,6 +142,46 @@ def replace_project_bullets(latex: str, project_name: str, new_bullets: list[str
     return pattern.sub(replacer, latex, count=1)
 
 
+def replace_projects_section(latex: str, projects: list[dict]) -> str:
+    blocks: list[str] = []
+    for project in projects:
+        display_name = project.get("full_name") or project.get("name") or ""
+        tech_stack = project.get("tech_stack", "")
+        bullets = [b for b in project.get("bullets", []) if b]
+        if not display_name or not bullets:
+            continue
+
+        safe_name = escape_special_chars(display_name)
+        safe_stack = escape_special_chars(tech_stack)
+        safe_bullets = [escape_special_chars(b) for b in bullets]
+        bullet_lines = "\n".join([f"    \\item {b}" for b in safe_bullets])
+
+        blocks.append(
+            "\n".join(
+                [
+                    f"\\textbf{{{safe_name}}} \\hfill \\textit{{Tech Stack: {safe_stack}}}",
+                    "\\begin{highlights}",
+                    bullet_lines,
+                    "\\end{highlights}",
+                ]
+            )
+        )
+
+    if not blocks:
+        return latex
+
+    new_content = "\n\n".join(blocks)
+    pattern = re.compile(
+        r'(\\section\{Projects\}\s*)(.*?)(\s*\\section\{Skills\})',
+        re.DOTALL,
+    )
+
+    def replacer(m: re.Match) -> str:
+        return f"{m.group(1)}{new_content}\n\n{m.group(3)}"
+
+    return pattern.sub(replacer, latex, count=1)
+
+
 def replace_experience_bullets(latex: str, company: str, new_bullets: list[str]) -> str:
     escaped = re.escape(company)
     safe_bullets = [escape_special_chars(b) for b in new_bullets]
@@ -132,6 +193,40 @@ def replace_experience_bullets(latex: str, company: str, new_bullets: list[str])
     )
     def replacer(m: re.Match) -> str:
         return f"{m.group(1)}\\item {bullet_content}\n{m.group(3)}"
+
+    return pattern.sub(replacer, latex, count=1)
+
+
+def replace_experience_section(latex: str, entries: list[dict]) -> str:
+    blocks: list[str] = []
+    for entry in entries:
+        header = entry.get("header", "").strip()
+        bullets = [b for b in entry.get("bullets", []) if b]
+        if not header or not bullets:
+            continue
+
+        safe_bullets = [escape_special_chars(b) for b in bullets]
+        bullet_lines = "\n".join([f"\\item {b}" for b in safe_bullets])
+        blocks.append(
+            "\n".join([
+                header,
+                "\\begin{highlights}",
+                bullet_lines,
+                "\\end{highlights}",
+            ])
+        )
+
+    if not blocks:
+        return latex
+
+    new_content = "\n\n".join(blocks)
+    pattern = re.compile(
+        r'(\\section\{Experience\}\s*)(.*?)(\s*\\section\{Projects\})',
+        re.DOTALL,
+    )
+
+    def replacer(m: re.Match) -> str:
+        return f"{m.group(1)}{new_content}\n\n{m.group(3)}"
 
     return pattern.sub(replacer, latex, count=1)
 

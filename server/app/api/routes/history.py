@@ -53,6 +53,22 @@ async def download_pdf(app_id: str):
     )
 
 
+@router.get("/output-pdf/{folder_name}")
+async def download_pdf_by_folder(folder_name: str):
+    if ".." in folder_name or "/" in folder_name or "\\" in folder_name:
+        raise HTTPException(status_code=400, detail="Invalid folder name")
+
+    pdf_path = storage.get_file_path(folder_name, "resume.pdf")
+    if not pdf_path.exists():
+        raise HTTPException(status_code=404, detail="PDF not generated for this output folder")
+
+    return FileResponse(
+        path=str(pdf_path),
+        media_type="application/pdf",
+        filename=f"{folder_name}_resume.pdf",
+    )
+
+
 @router.get("/history/{app_id}/latex")
 async def download_latex(app_id: str):
     record = duckdb_client.get_application(app_id)
