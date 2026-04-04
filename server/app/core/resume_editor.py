@@ -138,12 +138,14 @@ def _choose_subtle_summary(current_summary: str, candidate_summary: str) -> str:
     if not candidate:
         return current
 
-    if len(candidate.split()) > max(1, int(len(current.split()) * 1.2)):
-        return current
-
-    similarity = SequenceMatcher(None, current.lower(), candidate.lower()).ratio()
-    if similarity < 0.55:
-        return current
+    # Only apply word-limit and similarity gates when there is an existing summary to protect.
+    # If current is empty, accept any non-empty candidate.
+    if current:
+        if len(candidate.split()) > max(1, int(len(current.split()) * 1.2)):
+            return current
+        similarity = SequenceMatcher(None, current.lower(), candidate.lower()).ratio()
+        if similarity < 0.55:
+            return current
 
     return candidate
 
@@ -166,7 +168,8 @@ def _dedupe(items: list[str]) -> list[str]:
 
 
 def _normalize_skill_key(skill: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", (skill or "").lower()).strip()
+    # Preserve + and # so C++/C# are not collapsed to the same key as "c"
+    return re.sub(r"[^a-z0-9+#]+", " ", (skill or "").lower()).strip()
 
 
 def _build_skill_presence_set(skills_map: dict[str, str]) -> set[str]:
@@ -453,19 +456,38 @@ def _rank_experience(
 
 
 def _merge_skills(current_skills: dict, ai_skills: dict, custom_skills: dict | None) -> dict:
-    # Preserve baseline current skills and only apply explicit user edits.
-    merged: dict[str, str] = dict(current_skills)
     custom = custom_skills or {}
+    current_presence = _build_skill_presence_set(current_skills)
+    merged: dict[str, str] = {}
 
-    for category, value in custom.items():
-        if value:
-            merged[category] = value
+    for cat in ["Languages", "Frameworks", "Databases", "Cloud & DevOps", "Specialized", "Soft Skills"]:
+        # 1. Explicit user edit always wins.
+        if cat in custom and custom[cat]:
+            merged[cat] = custom[cat]
+            continue
 
-    # If a category is blank in the resume, let AI fill only that blank bucket.
-    for category, value in ai_skills.items():
-        if category not in merged or not _normalize_ws(merged.get(category, "")):
-            if value:
-                merged[category] = value
+        current_val = current_skills.get(cat, "")
+        ai_val = ai_skills.get(cat, "")
+
+        if ai_val and current_val:
+            # Apply AI's reordering, but strip any item the AI hallucinated
+            # (i.e. not present in the current resume).
+            ai_items = _split_csv_items(ai_val)
+            filtered = [item for item in ai_items if _is_skill_present(item, current_presence)]
+            # Re-append anything the AI silently dropped (safety net).
+            seen = {_normalize_skill_key(i) for i in filtered}
+            for orig in _split_csv_items(current_val):
+                if _normalize_skill_key(orig) not in seen:
+                    filtered.append(orig)
+            merged[cat] = ", ".join(filtered) if filtered else current_val
+        else:
+            # No AI value for this category — keep current as-is.
+            merged[cat] = current_val
+
+    # Preserve any non-standard categories the current resume has.
+    for cat, val in current_skills.items():
+        if cat not in merged:
+            merged[cat] = val
 
     return _dedupe_skills_map(merged)
 
@@ -477,8 +499,12 @@ def _compute_ats_score(tailored_latex: str, ats_keywords: list[str]) -> dict:
     Strip LaTeX commands, then deterministically check which ATS keywords
     from the JD appear in the resume text. Returns score 0-100.
     """
-    plain = re.sub(r'\\[a-zA-Z]+\*?(\[[^\]]*\])?\{([^}]*)\}', r'\2', tailored_latex)
+    plain = tailored_latex
+    # Multiple passes unwrap nested commands like \textbf{\emph{Python}}
+    for _ in range(4):
+        plain = re.sub(r'\\[a-zA-Z]+\*?(\[[^\]]*\])?\{([^}]*)\}', r'\2', plain)
     plain = re.sub(r'\\[a-zA-Z]+\*?', ' ', plain)
+    plain = re.sub(r'[{}]', ' ', plain)  # strip any remaining bare braces
     plain = plain.lower()
 
     matched = []
@@ -679,9 +705,8 @@ def _apply_changes(
         result["tailored_summary"] = current_summary
 
     tailored_skills_payload = result.get("tailored_skills") if isinstance(result.get("tailored_skills"), dict) else {}
-    if tailored_skills_payload or custom_skills or jd_analysis:
+    if tailored_skills_payload or custom_skills:
         tailored_skills = _merge_skills(current_skills, tailored_skills_payload, custom_skills)
-        tailored_skills = _adjust_skills_for_jd(tailored_skills, jd_analysis)
         tailored_soft = tailored_skills.get("Soft Skills", "")
         current_soft = current_skills.get("Soft Skills", "")
         tailored_skills["Soft Skills"] = _sanitize_soft_skills(tailored_soft, current_soft)

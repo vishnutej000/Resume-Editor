@@ -87,15 +87,27 @@ def extract_experience_blocks(latex: str) -> list[dict]:
 
 def replace_summary(latex: str, new_summary: str) -> str:
     safe_summary = escape_special_chars(new_summary)
-    pattern = re.compile(
-        r'(\\section\{Summary\}\s*)(.*?)(\s*\\section\{Education\})',
-        re.DOTALL,
-    )
 
     def replacer(m: re.Match) -> str:
         return f"{m.group(1)}{safe_summary}{m.group(3)}"
 
-    return pattern.sub(replacer, latex, count=1)
+    # Try Education-specific anchor first (exact match for this template).
+    pattern = re.compile(
+        r'(\\section\{Summary\}\s*)(.*?)(\s*\\section\{Education\})',
+        re.DOTALL,
+    )
+    if pattern.search(latex):
+        return pattern.sub(replacer, latex, count=1)
+
+    # Fall back: any next section header.
+    pattern = re.compile(
+        r'(\\section\{Summary\}\s*)(.*?)(\s*\\section\{)',
+        re.DOTALL,
+    )
+    if pattern.search(latex):
+        return pattern.sub(replacer, latex, count=1)
+
+    return latex
 
 
 def replace_skills(latex: str, skills: dict) -> str:
@@ -108,15 +120,25 @@ def replace_skills(latex: str, skills: dict) -> str:
         lines.append(f"\\skillitem{{{safe_cat}}}{{{safe_vals}}}{suffix}")
     new_content = "\n".join(lines)
 
-    pattern = re.compile(
-        r'(\\section\{Skills\}\s*)(.*?)(\s*% --- LEADERSHIP)',
-        re.DOTALL,
-    )
-
     def replacer(m: re.Match) -> str:
         return f"{m.group(1)}{new_content}\n\n{m.group(3)}"
 
-    return pattern.sub(replacer, latex, count=1)
+    # Try LEADERSHIP comment anchor (most precise for this template).
+    pattern = re.compile(r'(\\section\{Skills\}\s*)(.*?)(\s*% --- LEADERSHIP)', re.DOTALL)
+    if pattern.search(latex):
+        return pattern.sub(replacer, latex, count=1)
+
+    # Fall back: any next section header.
+    pattern = re.compile(r'(\\section\{Skills\}\s*)(.*?)(\s*\\section\{)', re.DOTALL)
+    if pattern.search(latex):
+        return pattern.sub(replacer, latex, count=1)
+
+    # Last resort: end of document.
+    pattern = re.compile(r'(\\section\{Skills\}\s*)(.*?)(\s*\\end\{document\})', re.DOTALL)
+    if pattern.search(latex):
+        return pattern.sub(replacer, latex, count=1)
+
+    return latex
 
 
 def replace_project_bullets(latex: str, project_name: str, new_bullets: list[str], new_tech_stack: str) -> str:
